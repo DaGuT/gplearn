@@ -9,6 +9,7 @@ own custom functions.
 #
 # License: BSD 3 clause
 
+import scipy as sp
 import numpy as np
 from sklearn.externals import six
 
@@ -128,6 +129,43 @@ def _protected_inverse(x1):
     with np.errstate(divide='ignore', invalid='ignore'):
         return np.where(np.abs(x1) > 0.001, 1. / x1, 0.)
 
+def _sigmoid2(x1,x2):
+    return sp.special.expit(x1+x2)
+
+def _TR(arity):
+    #this is the list of functions to chose from in our randomizer according to the paper
+
+    if arity==1:
+        list_functions = [sigmoid1] #sqrt1,log1,neg1,inv1,abs1,sin1,cos1,tan1,
+    if arity==2:
+        list_functions = [sigmoid2]
+
+    #we generate rundom number which is position of function in list_functions
+    func_pos = np.random.randint(0,len(list_functions))
+
+    #and now we apply that function to our X
+    return list_functions[func_pos]
+
+# def _oneMinusF(f):
+#     #what this function does is it makes new function which is = 1-f (for 2nd crossover coefficient)
+#
+#     unwrap = f.function
+#     new_f = make_function(function=unwrap, name='1-'+f.name,arity=f.arity)
+#
+#     return new_f
+
+def _CTR():
+    #this is for crossover
+    #Just in case if I'd want to add more function that return values from [0,1]
+    list_functions = [sigmoid1]
+
+    #we generate rundom number which is position of function in list_functions
+    func_pos = np.random.randint(0,len(list_functions))
+
+    #and we return two coefficients
+    return list_functions[func_pos] #,_oneMinusF(list_functions[func_pos])
+
+
 add2 = make_function(function=np.add, name='add', arity=2)
 sub2 = make_function(function=np.subtract, name='sub', arity=2)
 mul2 = make_function(function=np.multiply, name='mul', arity=2)
@@ -142,6 +180,8 @@ min2 = make_function(function=np.minimum, name='min', arity=2)
 sin1 = make_function(function=np.sin, name='sin', arity=1)
 cos1 = make_function(function=np.cos, name='cos', arity=1)
 tan1 = make_function(function=np.tan, name='tan', arity=1)
+sigmoid1 = make_function(function=sp.special.expit, name='sg1', arity=1)
+sigmoid2 = make_function(function=_sigmoid2, name='sg2', arity=2)
 
 _function_map = {'add': add2,
                  'sub': sub2,
@@ -156,4 +196,6 @@ _function_map = {'add': add2,
                  'min': min2,
                  'sin': sin1,
                  'cos': cos1,
-                 'tan': tan1}
+                 'tan': tan1,
+                  'sg1': sigmoid1,
+                  'sg2': sigmoid2}

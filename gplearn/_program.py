@@ -14,7 +14,7 @@ from copy import deepcopy
 import numpy as np
 from sklearn.utils.random import sample_without_replacement
 
-from .functions import _Function
+from .functions import _Function, _function_map, _TR, _CTR
 from .utils import check_random_state
 
 
@@ -642,6 +642,64 @@ class _Program(object):
                 program[node] = terminal
 
         return program, list(mutate)
+
+    def _getProperTR(self,random_state, arity = 2):
+        #here I need to split for arity 1 generated TR and for arity 2 generated TR
+        if arity == 'random':
+            arity = np.random.randint(1,1+1)
+
+        if arity==1:
+            result = [_TR(arity)] + self.build_program(random_state)
+        else:
+            #arity 2
+            result = [_TR(arity)] + self.build_program(random_state) + self.build_program(random_state)
+
+        #now we return properly generated tree
+        return result
+
+    def gs_hoist_mutation(self, ms, random_state):
+
+        # Get a subtree to replace
+        start, end = self.get_subtree(random_state)
+        subtree = self.program[start:end]
+
+        # Get a subtree of the subtree to hoist with GS
+        sub_start, sub_end = self.get_subtree(random_state, subtree)
+        hoist = subtree[sub_start:sub_end]
+
+        #we make mutated node
+        #these are two random trees we apply random real function to
+        rt1 = self._getProperTR(random_state,'random')
+        rt2 = self._getProperTR(random_state,'random')
+
+        #this is full mutation node
+        mutated = [_function_map['add']] + hoist + [_function_map['mul'], ms, _function_map['sub']] + rt1 + rt2
+
+        #and now we return mutated app
+        return self.program[:start] + mutated + self.program[end:]
+
+    def gs_mutation(self, ms, random_state):
+
+        #in this case we have arity=2 function in tr
+        rt1 = self._getProperTR(random_state,'random')
+        rt2 = self._getProperTR(random_state,'random')
+
+        #this is fully mutated program
+        mutated = [_function_map['add']] + self.program + [_function_map['mul'], ms, _function_map['sub']] + rt1 + rt2
+
+        #and now we return mutated app
+        return mutated
+
+    def gs_crossover(self,donor,random_state):
+        #for now we do nothing
+
+        #we are going to
+        coef1 = _CTR()
+
+        #I will expand brackets so that (1-Tr)T2=T2-T2*Tr, cuz it's easier to implement
+        new_program = [_function_map['add']] + ([coef1] + self.program) + ([_function_map['sub']] + donor.program + ([coef1] + donor.program))
+
+        return new_program
 
     depth_ = property(_depth)
     length_ = property(_length)

@@ -47,12 +47,23 @@ def _parallel_evolve(n_programs, parents, X, y, sample_weight, seeds, params):
     method_probs = params['method_probs']
     p_point_replace = params['p_point_replace']
     max_samples = params['max_samples']
+    elitism = params['elitism']
+    gs_ms = params['gs_ms']
 
     max_samples = int(max_samples * n_samples)
 
     def _tournament():
         """Find the fittest individual from a sub-population."""
         contenders = random_state.randint(0, len(parents), tournament_size)
+        fitness = [parents[p].fitness_ for p in contenders]
+        if metric.greater_is_better:
+            parent_index = contenders[np.argmax(fitness)]
+        else:
+            parent_index = contenders[np.argmin(fitness)]
+        return parents[parent_index], parent_index
+
+    def _elitism():
+        contenders = np.arange(0,len(parents))
         fitness = [parents[p].fitness_ for p in contenders]
         if metric.greater_is_better:
             parent_index = contenders[np.argmax(fitness)]
@@ -71,43 +82,66 @@ def _parallel_evolve(n_programs, parents, X, y, sample_weight, seeds, params):
             program = None
             genome = None
         else:
-            method = random_state.uniform()
-            parent, parent_index = _tournament()
-
-            if method < method_probs[0]:
-                # crossover
-                donor, donor_index = _tournament()
-                program, removed, remains = parent.crossover(donor.program,
-                                                             random_state)
-                genome = {'method': 'Crossover',
-                          'parent_idx': parent_index,
-                          'parent_nodes': removed,
-                          'donor_idx': donor_index,
-                          'donor_nodes': remains}
-            elif method < method_probs[1]:
-                # subtree_mutation
-                program, removed, _ = parent.subtree_mutation(random_state)
-                genome = {'method': 'Subtree Mutation',
-                          'parent_idx': parent_index,
-                          'parent_nodes': removed}
-            elif method < method_probs[2]:
-                # hoist_mutation
-                program, removed = parent.hoist_mutation(random_state)
-                genome = {'method': 'Hoist Mutation',
-                          'parent_idx': parent_index,
-                          'parent_nodes': removed}
-            elif method < method_probs[3]:
-                # point_mutation
-                program, mutated = parent.point_mutation(random_state)
-                genome = {'method': 'Point Mutation',
-                          'parent_idx': parent_index,
-                          'parent_nodes': mutated}
-            else:
-                # reproduction
+            #elitism
+            if (i == 0 and elitism):
+                parent, parent_index = _elitism()
                 program = parent.reproduce()
-                genome = {'method': 'Reproduction',
+                genome = {'method': 'Reproduction Elitism',
                           'parent_idx': parent_index,
                           'parent_nodes': []}
+            else:
+                method = random_state.uniform()
+                parent, parent_index = _tournament()
+
+                if method < method_probs[0]:
+                    # crossover
+                    donor, donor_index = _tournament()
+                    program, removed, remains = parent.crossover(donor.program,
+                                                                 random_state)
+                    genome = {'method': 'Crossover',
+                              'parent_idx': parent_index,
+                              'parent_nodes': removed,
+                              'donor_idx': donor_index,
+                              'donor_nodes': remains}
+                elif method < method_probs[1]:
+                    # subtree_mutation
+                    program, removed, _ = parent.subtree_mutation(random_state)
+                    genome = {'method': 'Subtree Mutation',
+                              'parent_idx': parent_index,
+                              'parent_nodes': removed}
+                elif method < method_probs[2]:
+                    # hoist_mutation
+                    program, removed = parent.hoist_mutation(random_state)
+                    genome = {'method': 'Hoist Mutation',
+                              'parent_idx': parent_index,
+                              'parent_nodes': removed}
+                elif method < method_probs[3]:
+                    # point_mutation
+                    program, mutated = parent.point_mutation(random_state)
+                    genome = {'method': 'Point Mutation',
+                              'parent_idx': parent_index,
+                              'parent_nodes': mutated}
+                elif method < method_probs[4]:
+                    program = parent.gs_mutation(gs_ms,random_state)
+                    genome = {'method': 'Geometric Mutation',
+                              'parent_idx': parent_index}
+                elif method < method_probs[5]:
+                    program = parent.gs_hoist_mutation(gs_ms,random_state)
+                    genome = {'method': 'Hoist Geometric Mutation',
+                              'parent_idx': parent_index}
+                elif method < method_probs[6]:
+                    donor, donor_index = _tournament()
+                    program = parent.gs_crossover(donor,random_state)
+                    genome = {'method': 'Geometric Crossover',
+                              'parent_idx': parent_index,
+                              'donor_idx': donor_index}
+
+                else:
+                    # reproduction
+                    program = parent.reproduce()
+                    genome = {'method': 'Reproduction',
+                              'parent_idx': parent_index,
+                              'parent_nodes': []}
 
         program = _Program(function_set=function_set,
                            arities=arities,
@@ -175,12 +209,17 @@ class BaseSymbolic(six.with_metaclass(ABCMeta, BaseEstimator)):
                  p_hoist_mutation=0.01,
                  p_point_mutation=0.01,
                  p_point_replace=0.05,
+                 gs_mutation = 0,
+                 gs_hoist_mutation = 0,
+                 gs_crossover = 0,
+                 gs_ms = 0.001,
                  max_samples=1.0,
                  warm_start=False,
                  low_memory=False,
                  n_jobs=1,
                  verbose=0,
-                 random_state=None):
+                 random_state=None,
+                 elitism = False):
 
         self.population_size = population_size
         self.hall_of_fame = hall_of_fame
@@ -199,12 +238,17 @@ class BaseSymbolic(six.with_metaclass(ABCMeta, BaseEstimator)):
         self.p_hoist_mutation = p_hoist_mutation
         self.p_point_mutation = p_point_mutation
         self.p_point_replace = p_point_replace
+        self.gs_mutation = gs_mutation
+        self.gs_hoist_mutation = gs_hoist_mutation
+        self.gs_crossover = gs_crossover
+        self.gs_ms = gs_ms
         self.max_samples = max_samples
         self.warm_start = warm_start
         self.low_memory = low_memory
         self.n_jobs = n_jobs
         self.verbose = verbose
         self.random_state = random_state
+        self.elitism = elitism
 
     def _verbose_reporter(self, run_details=None):
         """A report of the progress of the evolution process.
@@ -330,7 +374,10 @@ class BaseSymbolic(six.with_metaclass(ABCMeta, BaseEstimator)):
         self._method_probs = np.array([self.p_crossover,
                                        self.p_subtree_mutation,
                                        self.p_hoist_mutation,
-                                       self.p_point_mutation])
+                                       self.p_point_mutation,
+                                       self.gs_mutation,
+                                       self.gs_hoist_mutation,
+                                       self.gs_crossover])
         self._method_probs = np.cumsum(self._method_probs)
 
         if self._method_probs[-1] > 1:
@@ -360,6 +407,8 @@ class BaseSymbolic(six.with_metaclass(ABCMeta, BaseEstimator)):
         params['function_set'] = self._function_set
         params['arities'] = self._arities
         params['method_probs'] = self._method_probs
+        params['elitism'] = self.elitism
+        params['gs_ms'] = self.gs_ms
 
         if not self.warm_start or not hasattr(self, '_programs'):
             # Free allocated memory, if any
@@ -671,7 +720,7 @@ class SymbolicRegressor(BaseSymbolic, RegressorMixin):
         When set to ``True``, reuse the solution of the previous call to fit
         and add more generations to the evolution, otherwise, just fit a new
         evolution.
-    
+
     low_memory : bool, optional (default=False)
         When set to ``True``, only the current generation is retained. Parent
         information is discarded. For very large populations or runs with many
@@ -732,12 +781,17 @@ class SymbolicRegressor(BaseSymbolic, RegressorMixin):
                  p_hoist_mutation=0.01,
                  p_point_mutation=0.01,
                  p_point_replace=0.05,
+                 gs_mutation = 0,
+                 gs_hoist_mutation = 0,
+                 gs_crossover = 0,
+                 gs_ms = 0.001,
                  max_samples=1.0,
                  warm_start=False,
                  low_memory=False,
                  n_jobs=1,
                  verbose=0,
-                 random_state=None):
+                 random_state=None,
+                 elitism = False):
         super(SymbolicRegressor, self).__init__(
             population_size=population_size,
             generations=generations,
@@ -754,12 +808,17 @@ class SymbolicRegressor(BaseSymbolic, RegressorMixin):
             p_hoist_mutation=p_hoist_mutation,
             p_point_mutation=p_point_mutation,
             p_point_replace=p_point_replace,
+            gs_mutation = gs_mutation,
+            gs_hoist_mutation = gs_hoist_mutation,
+            gs_crossover = gs_crossover,
+            gs_ms = 0.001,
             max_samples=max_samples,
             warm_start=warm_start,
             low_memory=low_memory,
             n_jobs=n_jobs,
             verbose=verbose,
-            random_state=random_state)
+            random_state=random_state,
+            elitism = elitism)
 
     def __str__(self):
         """Overloads `print` output of the object to resemble a LISP tree."""
