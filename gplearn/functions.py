@@ -165,7 +165,6 @@ def _CTR():
     #and we return two coefficients
     return list_functions[func_pos] #,_oneMinusF(list_functions[func_pos])
 
-
 add2 = make_function(function=np.add, name='add', arity=2)
 sub2 = make_function(function=np.subtract, name='sub', arity=2)
 mul2 = make_function(function=np.multiply, name='mul', arity=2)
